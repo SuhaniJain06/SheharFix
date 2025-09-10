@@ -1,0 +1,413 @@
+import React, { useState } from "react";
+import { useNavigate } from "react-router-dom";
+import { CivicIssue } from "@/entities/all";
+import { InvokeLLM, UploadFile } from "@/integrations/Core";
+import { createPageUrl } from "@/utils";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { 
+  Upload, 
+  MapPin, 
+  Camera, 
+  Send, 
+  ArrowLeft,
+  AlertCircle,
+  CheckCircle2,
+  Mic
+} from "lucide-react";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+
+export default function ReportIssue() {
+  const navigate = useNavigate();
+  const [formData, setFormData] = useState({
+    title: '',
+    description: '',
+    category: '',
+    location: {
+      latitude: 0,
+      longitude: 0,
+      address: ''
+    }
+  });
+  const [images, setImages] = useState([]);
+  const [voiceNotes, setVoiceNotes] = useState([]);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isClassifying, setIsClassifying] = useState(false);
+  const [error, setError] = useState('');
+  const [success, setSuccess] = useState(false);
+
+  const handleInputChange = (field, value) => {
+    setFormData(prev => ({
+      ...prev,
+      [field]: value
+    }));
+  };
+
+  const handleLocationChange = (field, value) => {
+    setFormData(prev => ({
+      ...prev,
+      location: {
+        ...prev.location,
+        [field]: value
+      }
+    }));
+  };
+
+  const getCurrentLocation = () => {
+    if (navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition(
+        async (position) => {
+          const { latitude, longitude } = position.coords;
+          handleLocationChange('latitude', latitude);
+          handleLocationChange('longitude', longitude);
+          
+          // Mock reverse geocoding - in real app would use actual geocoding service
+          const mockAddress = `${Math.floor(Math.random() * 999)} Main St, City, State ${Math.floor(Math.random() * 90000 + 10000)}`;
+          handleLocationChange('address', mockAddress);
+        },
+        (error) => {
+          setError('Unable to get your location. Please enter address manually.');
+        }
+      );
+    } else {
+      setError('Geolocation is not supported by your browser.');
+    }
+  };
+
+  const handleFileUpload = async (files, type) => {
+    if (files.length === 0) return;
+
+    setIsSubmitting(true);
+    try {
+      const uploadPromises = files.map(file => UploadFile({ file }));
+      const uploadResults = await Promise.all(uploadPromises);
+      const fileUrls = uploadResults.map(result => result.file_url);
+      
+      if (type === 'image') {
+        setImages(prev => [...prev, ...fileUrls]);
+      } else if (type === 'voice') {
+        setVoiceNotes(prev => [...prev, ...fileUrls]);
+      }
+    } catch (error) {
+      setError(`Error uploading ${type}s. Please try again.`);
+    }
+    setIsSubmitting(false);
+  };
+  
+  const handleImageUpload = (event) => {
+    handleFileUpload(Array.from(event.target.files), 'image');
+  };
+
+  const handleVoiceUpload = (event) => {
+    handleFileUpload(Array.from(event.target.files), 'voice');
+  };
+
+  const classifyIssue = async () => {
+    if (!formData.title || !formData.description) {
+      setError('Please provide a title and description first.');
+      return;
+    }
+
+    setIsClassifying(true);
+    try {
+      const response = await InvokeLLM({
+        prompt: `Classify this civic issue, suggest a priority level, a priority score (0-100), and an appropriate department.
+        
+        Title: ${formData.title}
+        Description: ${formData.description}
+        
+        Available categories: pothole, streetlight, garbage, water_leak, traffic_signal, road_damage, park_maintenance, noise_pollution, illegal_dumping, live_wires, open_drain, other
+        
+        Priority levels: low, medium, high, critical
+        
+        Respond with the most appropriate category, priority, priority_score, department, and a confidence score for your classification.`,
+        response_json_schema: {
+          type: "object",
+          properties: {
+            category: { type: "string" },
+            priority: { type: "string" },
+            priority_score: { type: "number" },
+            department: { type: "string" },
+            category_confidence: { type: "number" },
+            reasoning: { type: "string" }
+          }
+        }
+      });
+
+      if (response.category) {
+        setFormData(prev => ({
+          ...prev,
+          category: response.category,
+          priority: response.priority,
+          priority_score: response.priority_score,
+          department: response.department,
+          category_confidence: response.category_confidence
+        }));
+      }
+    } catch (error) {
+      console.error('Error classifying issue:', error);
+    }
+    setIsClassifying(false);
+  };
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    if (!formData.title || !formData.description || !formData.category) {
+      setError('Please fill in all required fields.');
+      return;
+    }
+
+    setIsSubmitting(true);
+    setError('');
+
+    try {
+      const now = new Date();
+      const slaDueDate = new Date(now.setDate(now.getDate() + 7)); // Example: 7-day SLA
+
+      await CivicIssue.create({
+        ...formData,
+        images,
+        voice_notes: voiceNotes,
+        sla_due_date: slaDueDate.toISOString(),
+        priority: formData.priority || 'medium',
+        department: formData.department || 'public_works'
+      });
+
+      setSuccess(true);
+      setTimeout(() => {
+        navigate(createPageUrl('Dashboard'));
+      }, 2000);
+    } catch (error) {
+      setError('Error submitting issue. Please try again.');
+    }
+    setIsSubmitting(false);
+  };
+
+  if (success) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-6 flex items-center justify-center">
+        <Card className="max-w-md w-full text-center shadow-lg">
+          <CardContent className="p-8">
+            <CheckCircle2 className="w-16 h-16 text-emerald-500 mx-auto mb-4" />
+            <h2 className="text-2xl font-bold text-slate-900 mb-2">Issue Reported Successfully!</h2>
+            <p className="text-slate-600 mb-4">Your civic issue has been submitted and will be reviewed by the appropriate department.</p>
+            <p className="text-sm text-slate-500">Redirecting to dashboard...</p>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
+  return (
+    <div className="min-h-screen bg-background text-foreground p-6">
+      <div className="max-w-2xl mx-auto">
+        {/* Header */}
+        <div className="flex items-center gap-4 mb-8">
+          <Button
+            variant="outline"
+            size="icon"
+            onClick={() => navigate(createPageUrl('Dashboard'))}
+          >
+            <ArrowLeft className="w-4 h-4" />
+          </Button>
+          <div>
+            <h1 className="text-3xl font-bold text-foreground">Report Civic Issue</h1>
+            <p className="text-muted-foreground">Help improve your community by reporting issues</p>
+          </div>
+        </div>
+
+        {error && (
+          <Alert variant="destructive" className="mb-6">
+            <AlertCircle className="h-4 w-4" />
+            <AlertDescription>{error}</AlertDescription>
+          </Alert>
+        )}
+
+        <Card className="shadow-lg border-border bg-card">
+          <CardHeader>
+            <CardTitle className="text-xl font-bold text-card-foreground">Issue Details</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <form onSubmit={handleSubmit} className="space-y-6">
+              {/* Title */}
+              <div>
+                <Label htmlFor="title">Issue Title *</Label>
+                <Input
+                  id="title"
+                  placeholder="e.g., Large Pothole on Elm Street"
+                  value={formData.title}
+                  onChange={(e) => handleInputChange('title', e.target.value)}
+                  className="mt-1"
+                />
+              </div>
+
+              {/* Description */}
+              <div>
+                <Label htmlFor="description">Detailed Description *</Label>
+                <Textarea
+                  id="description"
+                  placeholder="Provide more details about the issue..."
+                  value={formData.description}
+                  onChange={(e) => handleInputChange('description', e.target.value)}
+                  rows={4}
+                  className="mt-1"
+                />
+              </div>
+
+              {/* AI Classification */}
+              <div className="flex gap-3 items-end">
+                <div className="flex-1">
+                  <Label htmlFor="category">Category *</Label>
+                  <Select value={formData.category} onValueChange={(value) => handleInputChange('category', value)}>
+                    <SelectTrigger className="mt-1">
+                      <SelectValue placeholder="Select category" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="pothole">Pothole</SelectItem>
+                      <SelectItem value="streetlight">Street Light</SelectItem>
+                      <SelectItem value="garbage">Garbage Collection</SelectItem>
+                      <SelectItem value="water_leak">Water Leak</SelectItem>
+                      <SelectItem value="traffic_signal">Traffic Signal</SelectItem>
+                      <SelectItem value="road_damage">Road Damage</SelectItem>
+                      <SelectItem value="park_maintenance">Park Maintenance</SelectItem>
+                      <SelectItem value="noise_pollution">Noise Pollution</SelectItem>
+                      <SelectItem value="illegal_dumping">Illegal Dumping</SelectItem>
+                      <SelectItem value="live_wires">Live Wires</SelectItem>
+                      <SelectItem value="open_drain">Open Drain</SelectItem>
+                      <SelectItem value="other">Other</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  {formData.category_confidence && (
+                      <p className="text-xs text-muted-foreground mt-1">
+                          AI Confidence: {(formData.category_confidence * 100).toFixed(0)}%
+                      </p>
+                  )}
+                </div>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={classifyIssue}
+                  disabled={isClassifying || !formData.title || !formData.description}
+                >
+                  {isClassifying ? 'Classifying...' : 'Auto-Classify'}
+                </Button>
+              </div>
+
+              {/* Location */}
+              <div>
+                <Label>Location</Label>
+                <div className="mt-1 space-y-2">
+                  <div className="flex gap-2">
+                    <Input
+                      placeholder="Enter address or description"
+                      value={formData.location.address}
+                      onChange={(e) => handleLocationChange('address', e.target.value)}
+                      className="flex-1"
+                    />
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={getCurrentLocation}
+                    >
+                      <MapPin className="w-4 h-4 mr-2" />
+                      Use GPS
+                    </Button>
+                  </div>
+                  {formData.location.latitude !== 0 && (
+                    <p className="text-sm text-muted-foreground">
+                      GPS: {formData.location.latitude.toFixed(6)}, {formData.location.longitude.toFixed(6)}
+                    </p>
+                  )}
+                </div>
+              </div>
+
+              {/* Multimedia Upload */}
+              <div>
+                <Label>Attachments (Optional)</Label>
+                <div className="mt-1 grid grid-cols-2 gap-3">
+                  <div className="border-2 border-dashed border-border rounded-lg p-6 text-center hover:border-primary transition-colors">
+                    <input
+                      type="file"
+                      multiple
+                      accept="image/*"
+                      onChange={handleImageUpload}
+                      className="hidden"
+                      id="image-upload"
+                    />
+                    <label htmlFor="image-upload" className="cursor-pointer">
+                      <Camera className="w-8 h-8 text-muted-foreground mx-auto mb-2" />
+                      <p className="text-sm text-foreground">Upload Photos</p>
+                      <p className="text-xs text-muted-foreground mt-1">PNG, JPG up to 10MB each</p>
+                    </label>
+                  </div>
+                   <div className="border-2 border-dashed border-border rounded-lg p-6 text-center hover:border-primary transition-colors">
+                    <input
+                      type="file"
+                      accept="audio/*"
+                      onChange={handleVoiceUpload}
+                      className="hidden"
+                      id="voice-upload"
+                    />
+                    <label htmlFor="voice-upload" className="cursor-pointer">
+                      <Mic className="w-8 h-8 text-muted-foreground mx-auto mb-2" />
+                      <p className="text-sm text-foreground">Upload Voice Note</p>
+                      <p className="text-xs text-muted-foreground mt-1">MP3, WAV up to 5MB</p>
+                    </label>
+                  </div>
+                </div>
+                  
+                {images.length > 0 && (
+                    <div className="grid grid-cols-2 gap-2 mt-3">
+                      {images.map((imageUrl, index) => (
+                        <div key={index} className="aspect-video bg-muted rounded-lg overflow-hidden">
+                          <img 
+                            src={imageUrl} 
+                            alt={`Upload ${index + 1}`}
+                            className="w-full h-full object-cover"
+                          />
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                {voiceNotes.length > 0 && (
+                    <div className="mt-3">
+                        <p className="text-sm font-medium text-foreground mb-2">Voice Notes:</p>
+                        {voiceNotes.map((url, index) => (
+                           <audio key={index} controls src={url} className="w-full mt-1 bg-muted rounded-lg p-2">
+                               Your browser does not support the audio element.
+                           </audio>
+                        ))}
+                    </div>
+                )}
+              </div>
+
+              {/* Submit Button */}
+              <Button 
+                type="submit"
+                disabled={isSubmitting}
+                className="w-full bg-gradient-to-r from-blue-600 to-emerald-600 hover:from-blue-700 hover:to-emerald-700"
+              >
+                {isSubmitting ? (
+                  <>
+                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2" />
+                    Submitting...
+                  </>
+                ) : (
+                  <>
+                    <Send className="w-4 h-4 mr-2" />
+                    Submit Issue Report
+                  </>
+                )}
+              </Button>
+            </form>
+          </CardContent>
+        </Card>
+      </div>
+    </div>
+  );
+}
+

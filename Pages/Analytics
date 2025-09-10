@@ -1,0 +1,342 @@
+import React, { useState, useEffect } from "react";
+import { CivicIssue } from "@/entities/all";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { 
+  BarChart, 
+  Bar, 
+  XAxis, 
+  YAxis, 
+  CartesianGrid, 
+  Tooltip, 
+  ResponsiveContainer,
+  PieChart,
+  Pie,
+  Cell,
+  LineChart,
+  Line
+} from "recharts";
+import { 
+  TrendingUp, 
+  Clock, 
+  Users, 
+  CheckCircle2,
+  AlertTriangle,
+  MapPin
+} from "lucide-react";
+import { format, subDays, parseISO } from "date-fns";
+
+const COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#f97316'];
+
+export default function Analytics() {
+  const [issues, setIssues] = useState([]);
+  const [timeRange, setTimeRange] = useState('30');
+  const [isLoading, setIsLoading] = useState(true);
+
+  useEffect(() => {
+    loadIssues();
+  }, []);
+
+  const loadIssues = async () => {
+    setIsLoading(true);
+    try {
+      const fetchedIssues = await CivicIssue.list('-created_date');
+      setIssues(fetchedIssues);
+    } catch (error) {
+      console.error('Error loading issues:', error);
+    }
+    setIsLoading(false);
+  };
+
+  // Filter issues by time range
+  const filterIssuesByTimeRange = (issues) => {
+    const days = parseInt(timeRange);
+    const cutoffDate = subDays(new Date(), days);
+    return issues.filter(issue => 
+      new Date(issue.created_date) >= cutoffDate
+    );
+  };
+
+  const filteredIssues = filterIssuesByTimeRange(issues);
+
+  // Category distribution
+  const getCategoryData = () => {
+    const categories = {};
+    filteredIssues.forEach(issue => {
+      categories[issue.category] = (categories[issue.category] || 0) + 1;
+    });
+    
+    return Object.entries(categories).map(([category, count]) => ({
+      name: category.replace(/_/g, ' '),
+      value: count,
+      percentage: ((count / filteredIssues.length) * 100).toFixed(1)
+    }));
+  };
+
+  // Status distribution
+  const getStatusData = () => {
+    const statuses = {};
+    filteredIssues.forEach(issue => {
+      statuses[issue.status] = (statuses[issue.status] || 0) + 1;
+    });
+    
+    return Object.entries(statuses).map(([status, count]) => ({
+      name: status.replace(/_/g, ' '),
+      value: count
+    }));
+  };
+
+  // Daily trend data
+  const getDailyTrendData = () => {
+    const days = parseInt(timeRange);
+    const dailyData = {};
+    
+    // Initialize all days
+    for (let i = 0; i < days; i++) {
+      const date = format(subDays(new Date(), i), 'MMM d');
+      dailyData[date] = { reported: 0, resolved: 0 };
+    }
+    
+    filteredIssues.forEach(issue => {
+      const date = format(new Date(issue.created_date), 'MMM d');
+      if (dailyData[date]) {
+        dailyData[date].reported += 1;
+        if (issue.status === 'resolved' || issue.status === 'closed') {
+          dailyData[date].resolved += 1;
+        }
+      }
+    });
+    
+    return Object.entries(dailyData).map(([date, data]) => ({
+      date,
+      ...data
+    })).reverse();
+  };
+
+  // Department performance
+  const getDepartmentData = () => {
+    const departments = {};
+    filteredIssues.forEach(issue => {
+      if (!departments[issue.department]) {
+        departments[issue.department] = {
+          total: 0,
+          resolved: 0,
+          avgRating: 0,
+          ratings: []
+        };
+      }
+      departments[issue.department].total += 1;
+      if (issue.status === 'resolved' || issue.status === 'closed') {
+        departments[issue.department].resolved += 1;
+      }
+      if (issue.citizen_rating) {
+        departments[issue.department].ratings.push(issue.citizen_rating);
+      }
+    });
+    
+    return Object.entries(departments).map(([dept, data]) => ({
+      department: dept.replace(/_/g, ' '),
+      total: data.total,
+      resolved: data.resolved,
+      resolutionRate: ((data.resolved / data.total) * 100).toFixed(1),
+      avgRating: data.ratings.length > 0 
+        ? (data.ratings.reduce((sum, rating) => sum + rating, 0) / data.ratings.length).toFixed(1)
+        : 'N/A'
+    }));
+  };
+
+  const categoryData = getCategoryData();
+  const statusData = getStatusData();
+  const dailyTrendData = getDailyTrendData();
+  const departmentData = getDepartmentData();
+
+  // Calculate key metrics
+  const totalIssues = filteredIssues.length;
+  const resolvedIssues = filteredIssues.filter(issue => issue.status === 'resolved' || issue.status === 'closed').length;
+  const resolutionRate = totalIssues > 0 ? ((resolvedIssues / totalIssues) * 100).toFixed(1) : 0;
+  const averageRating = filteredIssues.filter(issue => issue.citizen_rating).reduce((sum, issue) => sum + issue.citizen_rating, 0) / filteredIssues.filter(issue => issue.citizen_rating).length || 0;
+
+  return (
+    <div className="p-6 space-y-6 bg-gradient-to-br from-slate-50 to-blue-50 min-h-screen">
+      <div className="max-w-7xl mx-auto">
+        {/* Header */}
+        <div className="flex justify-between items-center mb-8">
+          <div>
+            <h1 className="text-3xl font-bold text-slate-900 mb-2">Analytics Dashboard</h1>
+            <p className="text-slate-600">Insights and performance metrics for civic issues</p>
+          </div>
+          <Select value={timeRange} onValueChange={setTimeRange}>
+            <SelectTrigger className="w-40">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="7">Last 7 days</SelectItem>
+              <SelectItem value="30">Last 30 days</SelectItem>
+              <SelectItem value="90">Last 90 days</SelectItem>
+              <SelectItem value="365">Last year</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+
+        {/* Key Metrics */}
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
+          <Card className="shadow-lg border-0 bg-white/80 backdrop-blur-sm">
+            <CardContent className="p-6">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm text-slate-500 mb-1">Total Issues</p>
+                  <p className="text-3xl font-bold text-slate-900">{totalIssues}</p>
+                </div>
+                <AlertTriangle className="w-8 h-8 text-blue-500" />
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card className="shadow-lg border-0 bg-white/80 backdrop-blur-sm">
+            <CardContent className="p-6">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm text-slate-500 mb-1">Resolution Rate</p>
+                  <p className="text-3xl font-bold text-slate-900">{resolutionRate}%</p>
+                </div>
+                <CheckCircle2 className="w-8 h-8 text-emerald-500" />
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card className="shadow-lg border-0 bg-white/80 backdrop-blur-sm">
+            <CardContent className="p-6">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm text-slate-500 mb-1">Avg Rating</p>
+                  <p className="text-3xl font-bold text-slate-900">{averageRating.toFixed(1)}</p>
+                </div>
+                <TrendingUp className="w-8 h-8 text-purple-500" />
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card className="shadow-lg border-0 bg-white/80 backdrop-blur-sm">
+            <CardContent className="p-6">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm text-slate-500 mb-1">Active Citizens</p>
+                  <p className="text-3xl font-bold text-slate-900">1,247</p>
+                </div>
+                <Users className="w-8 h-8 text-orange-500" />
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+
+        {/* Charts Grid */}
+        <div className="grid lg:grid-cols-2 gap-6 mb-8">
+          {/* Category Distribution */}
+          <Card className="shadow-lg border-0 bg-white/80 backdrop-blur-sm">
+            <CardHeader>
+              <CardTitle className="text-xl font-bold text-slate-900">Issues by Category</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <ResponsiveContainer width="100%" height={300}>
+                <PieChart>
+                  <Pie
+                    data={categoryData}
+                    cx="50%"
+                    cy="50%"
+                    outerRadius={80}
+                    fill="#8884d8"
+                    dataKey="value"
+                    label={({ name, percentage }) => `${name} (${percentage}%)`}
+                  >
+                    {categoryData.map((entry, index) => (
+                      <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                    ))}
+                  </Pie>
+                  <Tooltip />
+                </PieChart>
+              </ResponsiveContainer>
+            </CardContent>
+          </Card>
+
+          {/* Status Distribution */}
+          <Card className="shadow-lg border-0 bg-white/80 backdrop-blur-sm">
+            <CardHeader>
+              <CardTitle className="text-xl font-bold text-slate-900">Issues by Status</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <ResponsiveContainer width="100%" height={300}>
+                <BarChart data={statusData}>
+                  <CartesianGrid strokeDasharray="3 3" />
+                  <XAxis dataKey="name" />
+                  <YAxis />
+                  <Tooltip />
+                  <Bar dataKey="value" fill="#3b82f6" />
+                </BarChart>
+              </ResponsiveContainer>
+            </CardContent>
+          </Card>
+        </div>
+
+        {/* Daily Trends */}
+        <Card className="shadow-lg border-0 bg-white/80 backdrop-blur-sm mb-8">
+          <CardHeader>
+            <CardTitle className="text-xl font-bold text-slate-900">Daily Trends</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <ResponsiveContainer width="100%" height={300}>
+              <LineChart data={dailyTrendData}>
+                <CartesianGrid strokeDasharray="3 3" />
+                <XAxis dataKey="date" />
+                <YAxis />
+                <Tooltip />
+                <Line type="monotone" dataKey="reported" stroke="#3b82f6" name="Reported" />
+                <Line type="monotone" dataKey="resolved" stroke="#10b981" name="Resolved" />
+              </LineChart>
+            </ResponsiveContainer>
+          </CardContent>
+        </Card>
+
+        {/* Department Performance */}
+        <Card className="shadow-lg border-0 bg-white/80 backdrop-blur-sm">
+          <CardHeader>
+            <CardTitle className="text-xl font-bold text-slate-900">Department Performance</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="overflow-x-auto">
+              <table className="w-full">
+                <thead className="bg-slate-50">
+                  <tr>
+                    <th className="px-4 py-3 text-left font-semibold text-slate-900">Department</th>
+                    <th className="px-4 py-3 text-left font-semibold text-slate-900">Total Issues</th>
+                    <th className="px-4 py-3 text-left font-semibold text-slate-900">Resolved</th>
+                    <th className="px-4 py-3 text-left font-semibold text-slate-900">Resolution Rate</th>
+                    <th className="px-4 py-3 text-left font-semibold text-slate-900">Avg Rating</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {departmentData.map((dept, index) => (
+                    <tr key={dept.department} className={index % 2 === 0 ? 'bg-white' : 'bg-slate-50'}>
+                      <td className="px-4 py-3 font-medium text-slate-900 capitalize">{dept.department}</td>
+                      <td className="px-4 py-3 text-slate-700">{dept.total}</td>
+                      <td className="px-4 py-3 text-slate-700">{dept.resolved}</td>
+                      <td className="px-4 py-3">
+                        <span className={`px-2 py-1 rounded-full text-sm ${
+                          parseFloat(dept.resolutionRate) >= 80 ? 'bg-emerald-100 text-emerald-800' :
+                          parseFloat(dept.resolutionRate) >= 60 ? 'bg-yellow-100 text-yellow-800' :
+                          'bg-red-100 text-red-800'
+                        }`}>
+                          {dept.resolutionRate}%
+                        </span>
+                      </td>
+                      <td className="px-4 py-3 text-slate-700">{dept.avgRating}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+    </div>
+  );
+}

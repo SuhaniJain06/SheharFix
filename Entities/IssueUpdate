@@ -1,0 +1,275 @@
+{
+      "name": "CivicIssue",
+  "type": "object",
+  "properties": {
+    "title": {
+      "type": "string",
+      "description": "Brief title of the issue"
+    },
+    "description": {
+      "type": "string",
+      "description": "Detailed description of the issue"
+    },
+    "category": {
+      "type": "string",
+      "enum": [
+        "pothole",
+        "streetlight",
+        "garbage",
+        "water_leak",
+        "traffic_signal",
+        "road_damage",
+        "park_maintenance",
+        "noise_pollution",
+        "illegal_dumping",
+        "live_wires",
+        "open_drain",
+        "building_collapse",
+        "tree_fallen",
+        "waterlogging",
+        "stray_animals",
+        "other"
+      ],
+      "description": "Type of civic issue - expanded categories"
+    },
+    "category_confidence": {
+      "type": "number",
+      "description": "AI confidence score for auto-detected category (0-1)"
+    },
+    "priority": {
+      "type": "string",
+      "enum": [
+        "low",
+        "medium",
+        "high",
+        "critical",
+        "emergency"
+      ],
+      "default": "medium",
+      "description": "Priority level including emergency for dangerous situations"
+    },
+    "priority_score": {
+      "type": "number",
+      "description": "AI-generated urgency score (0-100) based on multiple factors"
+    },
+    "danger_level": {
+      "type": "string",
+      "enum": [
+        "safe",
+        "moderate",
+        "dangerous",
+        "life_threatening"
+      ],
+      "default": "safe"
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "reported",
+        "acknowledged",
+        "assigned",
+        "in_progress",
+        "resolved",
+        "pending_validation",
+        "closed",
+        "escalated",
+        "appealed",
+        "rejected"
+      ],
+      "default": "reported",
+      "description": "Enhanced status tracking with appeal flow"
+    },
+    "location": {
+      "type": "object",
+      "properties": {
+        "latitude": {
+          "type": "number"
+        },
+        "longitude": {
+          "type": "number"
+        },
+        "address": {
+          "type": "string"
+        },
+        "ward": {
+          "type": "string"
+        },
+        "area": {
+          "type": "string"
+        }
+      },
+      "description": "GPS coordinates and hierarchical address"
+    },
+    "images": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "URLs of uploaded images"
+    },
+    "voice_notes": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "URLs of uploaded voice notes"
+    },
+    "language": {
+      "type": "string",
+      "enum": [
+        "en",
+        "hi",
+        "regional"
+      ],
+      "default": "en",
+      "description": "Language of the report"
+    },
+    "department": {
+      "type": "string",
+      "enum": [
+        "public_works",
+        "sanitation",
+        "transportation",
+        "parks_recreation",
+        "utilities",
+        "police",
+        "electrical",
+        "water_board",
+        "fire_department",
+        "other"
+      ],
+      "description": "Auto-assigned department"
+    },
+    "assigned_staff": {
+      "type": "string",
+      "description": "Staff member assigned to handle the issue"
+    },
+    "duplicate_count": {
+      "type": "number",
+      "default": 1,
+      "description": "Number of duplicate reports merged"
+    },
+    "duplicate_ids": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "IDs of merged duplicate issues"
+    },
+    "citizen_rating": {
+      "type": "number",
+      "minimum": 1,
+      "maximum": 5,
+      "description": "Citizen satisfaction rating"
+    },
+    "citizen_feedback": {
+      "type": "string",
+      "description": "Detailed feedback from citizen"
+    },
+    "resolution_images": {
+      "type": "object",
+      "properties": {
+        "before": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "after": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "description": "Before/after images from officials"
+    },
+    "resolution_date": {
+      "type": "string",
+      "format": "date",
+      "description": "Date when issue was resolved"
+    },
+    "sla_due_date": {
+      "type": "string",
+      "format": "date-time",
+      "description": "SLA deadline for resolution"
+    },
+    "sla_status": {
+      "type": "string",
+      "enum": [
+        "on_time",
+        "approaching",
+        "overdue"
+      ],
+      "default": "on_time"
+    },
+    "source": {
+      "type": "string",
+      "enum": [
+        "mobile_app",
+        "web",
+        "whatsapp",
+        "sms",
+        "ivr",
+        "email"
+      ],
+      "default": "mobile_app",
+      "description": "Channel through which issue was reported"
+    },
+    "citizen_confirmations": {
+      "type": "number",
+      "default": 0,
+      "description": "Number of citizens confirming the fix"
+    },
+    "citizen_disputes": {
+      "type": "number",
+      "default": 0,
+      "description": "Number of citizens disputing the resolution"
+    },
+    "is_appealed": {
+      "type": "boolean",
+      "default": false,
+      "description": "True if resolution is appealed by citizen"
+    },
+    "appeal_reason": {
+      "type": "string",
+      "description": "Reason for appeal if applicable"
+    },
+    "community_adopter": {
+      "type": "string",
+      "description": "Citizen who adopted this area for monitoring"
+    },
+    "urgency_factors": {
+      "type": "object",
+      "properties": {
+        "frequency_multiplier": {
+          "type": "number"
+        },
+        "danger_multiplier": {
+          "type": "number"
+        },
+        "location_multiplier": {
+          "type": "number"
+        },
+        "time_multiplier": {
+          "type": "number"
+        }
+      },
+      "description": "Factors contributing to priority score"
+    },
+    "estimated_cost": {
+      "type": "number",
+      "description": "Estimated cost of resolution"
+    },
+    "actual_cost": {
+      "type": "number",
+      "description": "Actual cost incurred"
+    }
+  },
+  "required": [
+    "title",
+    "description",
+    "category",
+    "location"
+  ]
+}

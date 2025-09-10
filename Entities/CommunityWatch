@@ -1,0 +1,67 @@
+{
+  "name": "CommunityWatch",
+  "type": "object",
+  "properties": {
+    "citizen_name": {
+      "type": "string",
+      "description": "Name of the community volunteer"
+    },
+    "citizen_contact": {
+      "type": "string",
+      "description": "Contact information"
+    },
+    "adopted_area": {
+      "type": "string",
+      "description": "Area/ward adopted for monitoring"
+    },
+    "location_bounds": {
+      "type": "object",
+      "properties": {
+        "north": {
+          "type": "number"
+        },
+        "south": {
+          "type": "number"
+        },
+        "east": {
+          "type": "number"
+        },
+        "west": {
+          "type": "number"
+        }
+      },
+      "description": "Geographic bounds of adopted area"
+    },
+    "specialization": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "Types of issues they specialize in monitoring"
+    },
+    "verification_count": {
+      "type": "number",
+      "default": 0,
+      "description": "Number of issues verified"
+    },
+    "credibility_score": {
+      "type": "number",
+      "default": 100,
+      "description": "Credibility score based on accuracy"
+    },
+    "active_since": {
+      "type": "string",
+      "format": "date",
+      "description": "Date when they became a volunteer"
+    },
+    "is_verified": {
+      "type": "boolean",
+      "default": false,
+      "description": "Whether the volunteer is verified"
+    }
+  },
+  "required": [
+    "citizen_name",
+    "adopted_area"
+  ]
+}

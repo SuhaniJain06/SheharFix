@@ -1,0 +1,446 @@
+import React, { useState, useCallback } from "react";
+import { CivicIssue } from "@/entities/all";
+import { InvokeLLM, UploadFile } from "@/integrations/Core";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Badge } from "@/components/ui/badge";
+import { 
+  Camera, 
+  Mic, 
+  MapPin, 
+  Send, 
+  Languages,
+  AlertTriangle,
+  CheckCircle2
+} from "lucide-react";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+
+const translations = {
+  en: {
+    reportIssue: "Report Civic Issue",
+    title: "What's the problem?",
+    titlePlaceholder: "e.g., Large pothole on Main Street",
+    description: "Describe in detail",
+    descriptionPlaceholder: "Provide more details about the issue...",
+    category: "Issue Type",
+    categoryPlaceholder: "Select category",
+    location: "Location",
+    locationPlaceholder: "Enter address or landmark",
+    useGPS: "Use GPS",
+    photos: "Add Photos",
+    voiceNote: "Voice Note",
+    submit: "Submit Report",
+    submitting: "Submitting...",
+    success: "Issue reported successfully!"
+  },
+  hi: {
+    reportIssue: "नागरिक समस्या रिपोर्ट करें",
+    title: "क्या समस्या है?",
+    titlePlaceholder: "जैसे, मुख्य सड़क पर बड़ा गड्ढा",
+    description: "विस्तार से बताएं",
+    descriptionPlaceholder: "समस्या के बारे में और जानकारी दें...",
+    category: "समस्या का प्रकार",
+    categoryPlaceholder: "श्रेणी चुनें",
+    location: "स्थान",
+    locationPlaceholder: "पता या स्थान दर्ज करें",
+    useGPS: "GPS का उपयोग करें",
+    photos: "फोटो जोड़ें",
+    voiceNote: "आवाज़ का संदेश",
+    submit: "रिपोर्ट जमा करें",
+    submitting: "जमा की जा रही है...",
+    success: "समस्या सफलतापूर्वक रिपोर्ट की गई!"
+  },
+  regional: {
+    reportIssue: "नागरी अडचणी नोंदवा",
+    title: "काय समस्या आहे?",
+    titlePlaceholder: "उदा., मुख्य रस्त्यावर मोठे खड्डे",
+    description: "तपशीलवार सांगा",
+    descriptionPlaceholder: "समस्येबद्दल अधिक माहिती द्या...",
+    category: "समस्येचा प्रकार",
+    categoryPlaceholder: "श्रेणी निवडा",
+    location: "स्थान",
+    locationPlaceholder: "पत्ता किंवा ठिकाण टाका",
+    useGPS: "GPS वापरा",
+    photos: "फोटो जोडा",
+    voiceNote: "आवाज संदेश",
+    submit: "रिपोर्ट सबमिट करा",
+    submitting: "सबमिट होत आहे...",
+    success: "समस्या यशस्वीरित्या नोंदवली गेली!"
+  }
+};
+
+const categoryOptions = {
+  en: {
+    pothole: "Pothole",
+    streetlight: "Street Light",
+    garbage: "Garbage Collection",
+    water_leak: "Water Leak", 
+    open_drain: "Open Drain",
+    live_wires: "Live Wires",
+    waterlogging: "Waterlogging",
+    stray_animals: "Stray Animals",
+    other: "Other"
+  },
+  hi: {
+    pothole: "गड्ढा",
+    streetlight: "स्ट्रीट लाइट",
+    garbage: "कचरा संग्रह",
+    water_leak: "पानी का रिसाव",
+    open_drain: "खुला नाला",
+    live_wires: "खुले तार",
+    waterlogging: "जल भराव",
+    stray_animals: "आवारा पशु",
+    other: "अन्य"
+  },
+  regional: {
+    pothole: "खड्डा",
+    streetlight: "रस्त्याचा दिवा",
+    garbage: "कचरा गोळा",
+    water_leak: "पाणी गळती",
+    open_drain: "उघडा नाला",
+    live_wires: "उघडे तार",
+    waterlogging: "पाणी साचणे",
+    stray_animals: "भटके प्राणी",
+    other: "इतर"
+  }
+};
+
+export default function MobileReportForm({ onSuccess }) {
+  const [language, setLanguage] = useState('en');
+  const [formData, setFormData] = useState({
+    title: '',
+    description: '',
+    category: '',
+    location: { latitude: 0, longitude: 0, address: '' }
+  });
+  const [images, setImages] = useState([]);
+  const [voiceNotes, setVoiceNotes] = useState([]);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isClassifying, setIsClassifying] = useState(false);
+  const [classificationResult, setClassificationResult] = useState(null);
+  const [error, setError] = useState('');
+
+  const t = translations[language];
+  const categories = categoryOptions[language];
+
+  const handleInputChange = (field, value) => {
+    setFormData(prev => ({ ...prev, [field]: value }));
+  };
+
+  const getCurrentLocation = () => {
+    if (navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition(
+        (position) => {
+          const { latitude, longitude } = position.coords;
+          setFormData(prev => ({
+            ...prev,
+            location: { ...prev.location, latitude, longitude }
+          }));
+          
+          // Mock reverse geocoding
+          const mockAddress = `Location: ${latitude.toFixed(4)}, ${longitude.toFixed(4)}`;
+          setFormData(prev => ({
+            ...prev,
+            location: { ...prev.location, address: mockAddress }
+          }));
+        },
+        (error) => setError('Unable to get location. Please enter manually.')
+      );
+    }
+  };
+
+  const handleFileUpload = async (files, type) => {
+    if (!files.length) return;
+    
+    try {
+      const uploadPromises = files.map(file => UploadFile({ file }));
+      const results = await Promise.all(uploadPromises);
+      const urls = results.map(r => r.file_url);
+      
+      if (type === 'image') setImages(prev => [...prev, ...urls]);
+      else setVoiceNotes(prev => [...prev, ...urls]);
+    } catch (error) {
+      setError(`Error uploading ${type}s`);
+    }
+  };
+
+  const classifyIssue = useCallback(async () => {
+    if (!formData.title && !formData.description && !images.length) return;
+
+    setIsClassifying(true);
+    try {
+      const prompt = `Classify this civic issue and provide priority scoring:
+
+Title: ${formData.title}
+Description: ${formData.description}
+Has images: ${images.length > 0}
+
+Categories: pothole, streetlight, garbage, water_leak, open_drain, live_wires, waterlogging, stray_animals, other
+
+Return the most likely category, priority (low/medium/high/critical/emergency), danger level (safe/moderate/dangerous/life_threatening), priority score (0-100), and confidence.`;
+
+      const result = await InvokeLLM({
+        prompt,
+        response_json_schema: {
+          type: "object",
+          properties: {
+            category: { type: "string" },
+            priority: { type: "string" },
+            danger_level: { type: "string" },
+            priority_score: { type: "number" },
+            confidence: { type: "number" },
+            reasoning: { type: "string" }
+          }
+        }
+      });
+
+      setClassificationResult(result);
+      setFormData(prev => ({
+        ...prev,
+        category: result.category,
+        priority: result.priority,
+        priority_score: result.priority_score,
+        danger_level: result.danger_level,
+        category_confidence: result.confidence
+      }));
+    } catch (error) {
+      console.error('Classification error:', error);
+    }
+    setIsClassifying(false);
+  }, [formData.title, formData.description, images.length]); // Dependencies for useCallback
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    if (!formData.title || !formData.category) {
+      setError('Please fill required fields');
+      return;
+    }
+
+    setIsSubmitting(true);
+    try {
+      const slaHours = formData.priority === 'emergency' ? 2 : 
+                      formData.priority === 'critical' ? 24 : 
+                      formData.priority === 'high' ? 72 : 168;
+      
+      const slaDueDate = new Date();
+      slaDueDate.setHours(slaDueDate.getHours() + slaHours);
+
+      await CivicIssue.create({
+        ...formData,
+        images,
+        voice_notes: voiceNotes,
+        language,
+        source: 'mobile_app',
+        sla_due_date: slaDueDate.toISOString(),
+        status: 'reported'
+      });
+
+      onSuccess(t.success);
+    } catch (error) {
+      setError('Failed to submit report');
+    }
+    setIsSubmitting(false);
+  };
+
+  // Auto-classify when user provides enough info
+  React.useEffect(() => {
+    const timer = setTimeout(() => {
+      if ((formData.title || formData.description) && !classificationResult) {
+        classifyIssue();
+      }
+    }, 2000);
+    return () => clearTimeout(timer);
+  }, [formData.title, formData.description, classificationResult, classifyIssue]); // Dependencies for useEffect
+
+  return (
+    <div className="max-w-md mx-auto p-4 bg-background min-h-screen">
+      {/* Language Selector */}
+      <div className="flex justify-between items-center mb-6">
+        <h1 className="text-2xl font-bold text-foreground">{t.reportIssue}</h1>
+        <Select value={language} onValueChange={setLanguage}>
+          <SelectTrigger className="w-32">
+            <Languages className="w-4 h-4 mr-2" />
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="en">English</SelectItem>
+            <SelectItem value="hi">हिंदी</SelectItem>
+            <SelectItem value="regional">मराठी</SelectItem>
+          </SelectContent>
+        </Select>
+      </div>
+
+      {error && (
+        <Alert variant="destructive" className="mb-4">
+          <AlertTriangle className="h-4 w-4" />
+          <AlertDescription>{error}</AlertDescription>
+        </Alert>
+      )}
+
+      <Card className="shadow-lg">
+        <CardContent className="p-4">
+          <form onSubmit={handleSubmit} className="space-y-4">
+            {/* Title */}
+            <div>
+              <Label className="text-base font-medium">{t.title} *</Label>
+              <Input
+                placeholder={t.titlePlaceholder}
+                value={formData.title}
+                onChange={(e) => handleInputChange('title', e.target.value)}
+                className="mt-1 text-base py-3"
+              />
+            </div>
+
+            {/* Description */}
+            <div>
+              <Label className="text-base font-medium">{t.description}</Label>
+              <Textarea
+                placeholder={t.descriptionPlaceholder}
+                value={formData.description}
+                onChange={(e) => handleInputChange('description', e.target.value)}
+                rows={3}
+                className="mt-1 text-base"
+              />
+            </div>
+
+            {/* AI Classification Results */}
+            {classificationResult && (
+              <div className="bg-blue-50 dark:bg-blue-950 p-3 rounded-lg">
+                <div className="flex items-center gap-2 mb-2">
+                  <CheckCircle2 className="w-4 h-4 text-blue-600" />
+                  <span className="text-sm font-medium">AI Analysis Complete</span>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  <Badge variant="outline">{categories[classificationResult.category]}</Badge>
+                  <Badge variant={classificationResult.priority === 'emergency' ? 'destructive' : 'secondary'}>
+                    Priority: {classificationResult.priority}
+                  </Badge>
+                  <Badge variant="outline">
+                    {(classificationResult.confidence * 100).toFixed(0)}% confident
+                  </Badge>
+                </div>
+                {classificationResult.danger_level !== 'safe' && (
+                  <div className="mt-2 text-sm text-orange-600 dark:text-orange-400">
+                    <AlertTriangle className="w-4 h-4 inline mr-1" />
+                    Danger Level: {classificationResult.danger_level}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Category Selection */}
+            <div>
+              <Label className="text-base font-medium">{t.category} *</Label>
+              <Select value={formData.category} onValueChange={(value) => handleInputChange('category', value)}>
+                <SelectTrigger className="mt-1 text-base py-3">
+                  <SelectValue placeholder={t.categoryPlaceholder} />
+                </SelectTrigger>
+                <SelectContent>
+                  {Object.entries(categories).map(([key, value]) => (
+                    <SelectItem key={key} value={key}>{value}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            {/* Location */}
+            <div>
+              <Label className="text-base font-medium">{t.location}</Label>
+              <div className="flex gap-2 mt-1">
+                <Input
+                  placeholder={t.locationPlaceholder}
+                  value={formData.location.address}
+                  onChange={(e) => setFormData(prev => ({
+                    ...prev, location: { ...prev.location, address: e.target.value }
+                  }))}
+                  className="flex-1 text-base py-3"
+                />
+                <Button type="button" variant="outline" onClick={getCurrentLocation}>
+                  <MapPin className="w-4 h-4" />
+                </Button>
+              </div>
+            </div>
+
+            {/* Media Upload */}
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <input
+                  type="file"
+                  multiple
+                  accept="image/*"
+                  onChange={(e) => handleFileUpload(Array.from(e.target.files), 'image')}
+                  className="hidden"
+                  id="photo-upload"
+                />
+                <label htmlFor="photo-upload">
+                  <Button type="button" variant="outline" className="w-full py-6" asChild>
+                    <div className="cursor-pointer">
+                      <Camera className="w-6 h-6 mb-1" />
+                      <div className="text-sm">{t.photos}</div>
+                    </div>
+                  </Button>
+                </label>
+                {images.length > 0 && (
+                  <Badge variant="secondary" className="mt-1">{images.length} photos</Badge>
+                )}
+              </div>
+
+              <div>
+                <input
+                  type="file"
+                  accept="audio/*"
+                  onChange={(e) => handleFileUpload(Array.from(e.target.files), 'voice')}
+                  className="hidden"
+                  id="voice-upload"
+                />
+                <label htmlFor="voice-upload">
+                  <Button type="button" variant="outline" className="w-full py-6" asChild>
+                    <div className="cursor-pointer">
+                      <Mic className="w-6 h-6 mb-1" />
+                      <div className="text-sm">{t.voiceNote}</div>
+                    </div>
+                  </Button>
+                </label>
+                {voiceNotes.length > 0 && (
+                  <Badge variant="secondary" className="mt-1">{voiceNotes.length} voice note</Badge>
+                )}
+              </div>
+            </div>
+
+            {/* Media Preview */}
+            {images.length > 0 && (
+              <div className="grid grid-cols-2 gap-2">
+                {images.slice(0, 4).map((url, index) => (
+                  <img key={index} src={url} alt={`Upload ${index + 1}`} className="w-full h-20 object-cover rounded" />
+                ))}
+              </div>
+            )}
+
+            {/* Submit Button */}
+            <Button 
+              type="submit"
+              disabled={isSubmitting}
+              className="w-full py-4 text-base font-medium bg-gradient-to-r from-blue-600 to-emerald-600 hover:from-blue-700 hover:to-emerald-700"
+            >
+              {isSubmitting ? (
+                <>
+                  <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2" />
+                  {t.submitting}
+                </>
+              ) : (
+                <>
+                  <Send className="w-4 h-4 mr-2" />
+                  {t.submit}
+                </>
+              )}
+            </Button>
+          </form>
+        </CardContent>
+      </Card>
+    </div>
+  );
+}

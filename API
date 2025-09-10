@@ -1,0 +1,27 @@
+// JavaScript Example: Reading Entities
+// Filterable fields: title, description, category, category_confidence, priority, priority_score, danger_level, status, location, images, voice_notes, language, department, assigned_staff, duplicate_count, duplicate_ids, citizen_rating, citizen_feedback, resolution_images, resolution_date, sla_due_date, sla_status, source, citizen_confirmations, citizen_disputes, is_appealed, appeal_reason, community_adopter, urgency_factors, estimated_cost, actual_cost
+async function fetchCivicIssueEntities() {
+    const response = await fetch(`https://app.base44.com/api/apps/68bdc3dd21099a786a4f76d2/entities/CivicIssue`, {
+        headers: {
+            'api_key': 'e91643202c2949efbae3f6696c4c64ba', // or use await User.me() to get the API key
+            'Content-Type': 'application/json'
+        }
+    });
+    const data = await response.json();
+    console.log(data);
+}
+
+// JavaScript Example: Updating an Entity
+// Filterable fields: title, description, category, category_confidence, priority, priority_score, danger_level, status, location, images, voice_notes, language, department, assigned_staff, duplicate_count, duplicate_ids, citizen_rating, citizen_feedback, resolution_images, resolution_date, sla_due_date, sla_status, source, citizen_confirmations, citizen_disputes, is_appealed, appeal_reason, community_adopter, urgency_factors, estimated_cost, actual_cost
+async function updateCivicIssueEntity(entityId, updateData) {
+    const response = await fetch(`https://app.base44.com/api/apps/68bdc3dd21099a786a4f76d2/entities/CivicIssue/${entityId}`, {
+        method: 'PUT',
+        headers: {
+            'api_key': 'e91643202c2949efbae3f6696c4c64ba', // or use await User.me() to get the API key
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(updateData)
+    });
+    const data = await response.json();
+    console.log(data);
+}

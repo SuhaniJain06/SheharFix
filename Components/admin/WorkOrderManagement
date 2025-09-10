@@ -1,0 +1,359 @@
+import { WorkOrder, CivicIssue } from "@/entities/all";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Badge } from "@/components/ui/badge";
+import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { 
+  ClipboardList, 
+  User, 
+  Calendar, 
+  CheckCircle2, 
+  Clock,
+  Camera,
+  Upload,
+  AlertTriangle
+} from "lucide-react";
+import { format } from "date-fns";
+import { UploadFile } from "@/integrations/Core";
+
+export default function WorkOrderManagement({ issue, onClose, onUpdate }) {
+  const [workOrder, setWorkOrder] = useState(null);
+  const [staffList] = useState([
+    { id: 'staff_1', name: 'Rajesh Kumar', dept: 'public_works', contact: '+91-9876543210' },
+    { id: 'staff_2', name: 'Priya Sharma', dept: 'sanitation', contact: '+91-9876543211' },
+    { id: 'staff_3', name: 'Ahmed Khan', dept: 'utilities', contact: '+91-9876543212' },
+    { id: 'staff_4', name: 'Sunita Patel', dept: 'electrical', contact: '+91-9876543213' }
+  ]);
+  const [formData, setFormData] = useState({
+    assigned_staff: '',
+    estimated_completion: '',
+    completion_notes: ''
+  });
+  const [progressImages, setProgressImages] = useState([]);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const loadWorkOrder = useCallback(async () => {
+    if (!issue) return;
+    
+    try {
+      const orders = await WorkOrder.filter({ issue_id: issue.id });
+      if (orders.length > 0) {
+        setWorkOrder(orders[0]);
+        setFormData({
+          assigned_staff: orders[0].assigned_staff || '',
+          estimated_completion: orders[0].estimated_completion || '',
+          completion_notes: orders[0].completion_notes || ''
+        });
+        setProgressImages(orders[0].progress_images || []);
+      }
+    } catch (error) {
+      console.error('Error loading work order:', error);
+    }
+  }, [issue]);
+
+  useEffect(() => {
+    if (issue) {
+      loadWorkOrder();
+    }
+  }, [issue, loadWorkOrder]);
+
+  const createWorkOrder = async () => {
+    if (!issue || !formData.assigned_staff) return;
+
+    setIsSubmitting(true);
+    try {
+      const workOrderNumber = `WO-${Date.now()}`;
+      const assignedStaff = staffList.find(s => s.id === formData.assigned_staff);
+      
+      const newWorkOrder = await WorkOrder.create({
+        issue_id: issue.id,
+        work_order_number: workOrderNumber,
+        assigned_department: issue.department,
+        assigned_staff: assignedStaff.name,
+        staff_contact: assignedStaff.contact,
+        estimated_completion: formData.estimated_completion,
+        status: 'created'
+      });
+
+      // Update issue status
+      await CivicIssue.update(issue.id, { 
+        status: 'assigned',
+        assigned_staff: assignedStaff.name
+      });
+
+      setWorkOrder(newWorkOrder);
+      onUpdate();
+    } catch (error) {
+      console.error('Error creating work order:', error);
+    }
+    setIsSubmitting(false);
+  };
+
+  const updateWorkOrderStatus = async (newStatus) => {
+    if (!workOrder) return;
+
+    setIsSubmitting(true);
+    try {
+      await WorkOrder.update(workOrder.id, {
+        status: newStatus,
+        progress_images: progressImages,
+        completion_notes: formData.completion_notes,
+        actual_completion: newStatus === 'completed' ? new Date().toISOString() : undefined
+      });
+
+      // Update issue status accordingly
+      let issueStatus = 'assigned';
+      if (newStatus === 'in_progress') issueStatus = 'in_progress';
+      if (newStatus === 'completed') issueStatus = 'resolved';
+      if (newStatus === 'verified') issueStatus = 'pending_validation';
+
+      await CivicIssue.update(issue.id, { status: issueStatus });
+
+      onUpdate();
+      loadWorkOrder();
+    } catch (error) {
+      console.error('Error updating work order:', error);
+    }
+    setIsSubmitting(false);
+  };
+
+  const handleImageUpload = async (event) => {
+    const files = Array.from(event.target.files);
+    if (!files.length) return;
+
+    try {
+      const uploadPromises = files.map(file => UploadFile({ file }));
+      const results = await Promise.all(uploadPromises);
+      const imageUrls = results.map(r => r.file_url);
+      setProgressImages(prev => [...prev, ...imageUrls]);
+    } catch (error) {
+      console.error('Error uploading images:', error);
+    }
+  };
+
+  const getStatusColor = (status) => {
+    const colors = {
+      created: 'bg-blue-100 text-blue-800',
+      accepted: 'bg-cyan-100 text-cyan-800',
+      in_progress: 'bg-orange-100 text-orange-800',
+      completed: 'bg-green-100 text-green-800',
+      verified: 'bg-purple-100 text-purple-800',
+      closed: 'bg-gray-100 text-gray-800'
+    };
+    return colors[status] || colors.created;
+  };
+
+  if (!issue) return null;
+
+  return (
+    <Card className="max-w-4xl mx-auto shadow-lg">
+      <CardHeader className="border-b">
+        <div className="flex justify-between items-start">
+          <div>
+            <CardTitle className="text-xl font-bold">Work Order Management</CardTitle>
+            <p className="text-muted-foreground mt-1">Issue: {issue.title}</p>
+            {workOrder && (
+              <Badge className="mt-2">{workOrder.work_order_number}</Badge>
+            )}
+          </div>
+          <Button variant="outline" onClick={onClose}>Close</Button>
+        </div>
+      </CardHeader>
+
+      <CardContent className="p-6">
+        {!workOrder ? (
+          // Create Work Order Form
+          <div className="space-y-6">
+            <div className="bg-orange-50 dark:bg-orange-950 p-4 rounded-lg">
+              <div className="flex items-center gap-2 mb-2">
+                <AlertTriangle className="w-5 h-5 text-orange-600" />
+                <h3 className="font-semibold">Create Work Order</h3>
+              </div>
+              <p className="text-sm text-muted-foreground">
+                This issue needs to be assigned to a staff member for resolution.
+              </p>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div>
+                <label className="block text-sm font-medium mb-2">Assign Staff Member *</label>
+                <Select value={formData.assigned_staff} onValueChange={(value) => 
+                  setFormData(prev => ({...prev, assigned_staff: value}))
+                }>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select staff member" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {staffList
+                      .filter(staff => staff.dept === issue.department)
+                      .map(staff => (
+                        <SelectItem key={staff.id} value={staff.id}>
+                          <div className="flex items-center gap-2">
+                            <Avatar className="w-6 h-6">
+                              <AvatarFallback className="text-xs">{staff.name.charAt(0)}</AvatarFallback>
+                            </Avatar>
+                            <div>
+                              <div className="font-medium">{staff.name}</div>
+                              <div className="text-xs text-muted-foreground">{staff.contact}</div>
+                            </div>
+                          </div>
+                        </SelectItem>
+                      ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium mb-2">Estimated Completion</label>
+                <Input
+                  type="date"
+                  value={formData.estimated_completion}
+                  onChange={(e) => setFormData(prev => ({...prev, estimated_completion: e.target.value}))}
+                />
+              </div>
+            </div>
+
+            <Button 
+              onClick={createWorkOrder}
+              disabled={isSubmitting || !formData.assigned_staff}
+              className="w-full"
+            >
+              <ClipboardList className="w-4 h-4 mr-2" />
+              {isSubmitting ? 'Creating...' : 'Create Work Order'}
+            </Button>
+          </div>
+        ) : (
+          // Work Order Details and Management
+          <div className="space-y-6">
+            {/* Work Order Header */}
+            <div className="bg-card border rounded-lg p-4">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div>
+                  <div className="flex items-center gap-2 mb-1">
+                    <User className="w-4 h-4 text-muted-foreground" />
+                    <span className="text-sm font-medium">Assigned Staff</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Avatar>
+                      <AvatarFallback>{workOrder.assigned_staff?.charAt(0) || 'S'}</AvatarFallback>
+                    </Avatar>
+                    <div>
+                      <div className="font-medium">{workOrder.assigned_staff}</div>
+                      <div className="text-sm text-muted-foreground">{workOrder.staff_contact}</div>
+                    </div>
+                  </div>
+                </div>
+
+                <div>
+                  <div className="flex items-center gap-2 mb-1">
+                    <Clock className="w-4 h-4 text-muted-foreground" />
+                    <span className="text-sm font-medium">Timeline</span>
+                  </div>
+                  <div className="space-y-1 text-sm">
+                    <div>Created: {format(new Date(workOrder.created_date), 'MMM d, yyyy')}</div>
+                    {workOrder.estimated_completion && (
+                      <div>Est. Completion: {format(new Date(workOrder.estimated_completion), 'MMM d, yyyy')}</div>
+                    )}
+                  </div>
+                </div>
+
+                <div>
+                  <div className="flex items-center gap-2 mb-1">
+                    <CheckCircle2 className="w-4 h-4 text-muted-foreground" />
+                    <span className="text-sm font-medium">Status</span>
+                  </div>
+                  <Badge className={getStatusColor(workOrder.status)}>
+                    {workOrder.status.replace('_', ' ')}
+                  </Badge>
+                </div>
+              </div>
+            </div>
+
+            {/* Status Management */}
+            <div className="bg-card border rounded-lg p-4">
+              <h3 className="font-semibold mb-4">Update Work Order Status</h3>
+              <div className="flex flex-wrap gap-2">
+                {['accepted', 'in_progress', 'completed', 'verified'].map(status => (
+                  <Button
+                    key={status}
+                    variant={workOrder.status === status ? 'default' : 'outline'}
+                    onClick={() => updateWorkOrderStatus(status)}
+                    disabled={isSubmitting}
+                    size="sm"
+                  >
+                    {status.replace('_', ' ')}
+                  </Button>
+                ))}
+              </div>
+            </div>
+
+            {/* Progress Images */}
+            <div className="bg-card border rounded-lg p-4">
+              <div className="flex justify-between items-center mb-4">
+                <h3 className="font-semibold">Progress Documentation</h3>
+                <div>
+                  <input
+                    type="file"
+                    multiple
+                    accept="image/*"
+                    onChange={handleImageUpload}
+                    className="hidden"
+                    id="progress-upload"
+                  />
+                  <Button variant="outline" size="sm" asChild>
+                    <label htmlFor="progress-upload" className="cursor-pointer">
+                      <Upload className="w-4 h-4 mr-2" />
+                      Upload Photos
+                    </label>
+                  </Button>
+                </div>
+              </div>
+
+              {progressImages.length > 0 ? (
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                  {progressImages.map((url, index) => (
+                    <div key={index} className="aspect-square bg-muted rounded-lg overflow-hidden">
+                      <img 
+                        src={url} 
+                        alt={`Progress ${index + 1}`}
+                        className="w-full h-full object-cover hover:scale-105 transition-transform cursor-pointer"
+                      />
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="text-center py-8 text-muted-foreground">
+                  <Camera className="w-12 h-12 mx-auto mb-2 opacity-50" />
+                  <p>No progress photos uploaded yet</p>
+                </div>
+              )}
+            </div>
+
+            {/* Completion Notes */}
+            <div className="bg-card border rounded-lg p-4">
+              <h3 className="font-semibold mb-3">Completion Notes</h3>
+              <Textarea
+                placeholder="Add notes about the work performed, materials used, or any observations..."
+                value={formData.completion_notes}
+                onChange={(e) => setFormData(prev => ({...prev, completion_notes: e.target.value}))}
+                rows={4}
+                className="mb-3"
+              />
+              {workOrder.status === 'in_progress' && (
+                <Button 
+                  onClick={() => updateWorkOrderStatus('completed')}
+                  disabled={isSubmitting}
+                >
+                  Mark as Completed
+                </Button>
+              )}
+            </div>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}

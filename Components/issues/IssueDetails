@@ -1,0 +1,303 @@
+
+import React, { useState, useEffect } from 'react';
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Textarea } from "@/components/ui/textarea";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { 
+  X, 
+  MapPin, 
+  Clock, 
+  Users, 
+  Star,
+  MessageSquare,
+  Camera,
+  CheckCircle2,
+  AlertTriangle
+} from "lucide-react";
+import { format } from "date-fns";
+import { CivicIssue, IssueUpdate } from "@/entities/all";
+
+const categoryColors = {
+  pothole: "bg-red-100 text-red-800 border-red-200",
+  streetlight: "bg-yellow-100 text-yellow-800 border-yellow-200",
+  garbage: "bg-green-100 text-green-800 border-green-200",
+  water_leak: "bg-blue-100 text-blue-800 border-blue-200",
+  traffic_signal: "bg-purple-100 text-purple-800 border-purple-200",
+  road_damage: "bg-orange-100 text-orange-800 border-orange-200",
+  park_maintenance: "bg-emerald-100 text-emerald-800 border-emerald-200",
+  noise_pollution: "bg-pink-100 text-pink-800 border-pink-200",
+  illegal_dumping: "bg-red-100 text-red-800 border-red-200",
+  other: "bg-gray-100 text-gray-800 border-gray-200"
+};
+
+const statusColors = {
+  reported: "bg-blue-100 text-blue-800 border-blue-200",
+  assigned: "bg-yellow-100 text-yellow-800 border-yellow-200",
+  in_progress: "bg-orange-100 text-orange-800 border-orange-200",
+  resolved: "bg-emerald-100 text-emerald-800 border-emerald-200",
+  closed: "bg-gray-100 text-gray-800 border-gray-200",
+  escalated: "bg-red-100 text-red-800 border-red-200"
+};
+
+export default function IssueDetails({ issue, onClose }) {
+  const [updates, setUpdates] = useState([]);
+  const [newUpdate, setNewUpdate] = useState('');
+  const [newStatus, setNewStatus] = useState(issue?.status || 'reported');
+  const [rating, setRating] = useState(issue?.citizen_rating || 0);
+  const [isLoading, setIsLoading] = useState(false);
+
+  useEffect(() => {
+    const loadUpdates = async () => {
+      if (!issue?.id) return;
+      
+      try {
+        const fetchedUpdates = await IssueUpdate.filter({ issue_id: issue.id }, '-created_date');
+        setUpdates(fetchedUpdates);
+      } catch (error) {
+        console.error('Error loading updates:', error);
+      }
+    };
+
+    if (issue) {
+      loadUpdates();
+    }
+  }, [issue]);
+
+  const handleStatusUpdate = async () => {
+    if (!issue || newStatus === issue.status) return;
+    
+    setIsLoading(true);
+    try {
+      await CivicIssue.update(issue.id, { status: newStatus });
+      await IssueUpdate.create({
+        issue_id: issue.id,
+        update_type: 'status_change',
+        message: `Status changed to ${newStatus.replace(/_/g, ' ')}`,
+        author_type: 'citizen'
+      });
+      
+      // Reload updates
+      const fetchedUpdates = await IssueUpdate.filter({ issue_id: issue.id }, '-created_date');
+      setUpdates(fetchedUpdates);
+      onClose(); // Refresh parent component
+    } catch (error) {
+      console.error('Error updating status:', error);
+    }
+    setIsLoading(false);
+  };
+
+  const handleAddUpdate = async () => {
+    if (!newUpdate.trim() || !issue) return;
+    
+    setIsLoading(true);
+    try {
+      await IssueUpdate.create({
+        issue_id: issue.id,
+        update_type: 'comment',
+        message: newUpdate,
+        author_type: 'citizen'
+      });
+      
+      setNewUpdate('');
+      // Reload updates
+      const fetchedUpdates = await IssueUpdate.filter({ issue_id: issue.id }, '-created_date');
+      setUpdates(fetchedUpdates);
+    } catch (error) {
+      console.error('Error adding update:', error);
+    }
+    setIsLoading(false);
+  };
+
+  const handleRating = async (newRating) => {
+    if (!issue) return;
+    
+    setRating(newRating);
+    try {
+      await CivicIssue.update(issue.id, { citizen_rating: newRating });
+    } catch (error) {
+      console.error('Error updating rating:', error);
+    }
+  };
+
+  if (!issue) return null;
+
+  return (
+    <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+      <Card className="w-full max-w-2xl max-h-[90vh] overflow-hidden shadow-2xl">
+        <CardHeader className="border-b border-slate-200">
+          <div className="flex justify-between items-start">
+            <div className="flex-1">
+              <CardTitle className="text-xl font-bold text-slate-900 mb-2">
+                {issue.title}
+              </CardTitle>
+              <div className="flex gap-2 mb-3">
+                <Badge className={categoryColors[issue.category]}>
+                  {issue.category.replace(/_/g, ' ')}
+                </Badge>
+                <Badge className={statusColors[issue.status]}>
+                  {issue.status.replace(/_/g, ' ')}
+                </Badge>
+                <Badge variant="outline" className={`
+                  ${issue.priority === 'critical' ? 'border-red-500 text-red-700' :
+                    issue.priority === 'high' ? 'border-orange-500 text-orange-700' :
+                    issue.priority === 'medium' ? 'border-yellow-500 text-yellow-700' :
+                    'border-blue-500 text-blue-700'}
+                `}>
+                  {issue.priority} priority
+                </Badge>
+              </div>
+              <div className="flex items-center gap-4 text-sm text-slate-500">
+                <div className="flex items-center gap-1">
+                  <Clock className="w-4 h-4" />
+                  <span>{format(new Date(issue.created_date), "MMM d, yyyy 'at' h:mm a")}</span>
+                </div>
+                {issue.duplicate_count > 1 && (
+                  <div className="flex items-center gap-1">
+                    <Users className="w-4 h-4" />
+                    <span>{issue.duplicate_count} reports</span>
+                  </div>
+                )}
+              </div>
+            </div>
+            <Button variant="ghost" size="icon" onClick={onClose}>
+              <X className="w-5 h-5" />
+            </Button>
+          </div>
+        </CardHeader>
+
+        <CardContent className="overflow-y-auto max-h-[60vh]">
+          <div className="space-y-6">
+            {/* Description */}
+            <div>
+              <h3 className="font-semibold text-slate-900 mb-2">Description</h3>
+              <p className="text-slate-700">{issue.description}</p>
+            </div>
+
+            {/* Location */}
+            {issue.location?.address && (
+              <div>
+                <h3 className="font-semibold text-slate-900 mb-2">Location</h3>
+                <div className="flex items-center gap-2 text-slate-600">
+                  <MapPin className="w-4 h-4" />
+                  <span>{issue.location.address}</span>
+                </div>
+              </div>
+            )}
+
+            {/* Images */}
+            {issue.images && issue.images.length > 0 && (
+              <div>
+                <h3 className="font-semibold text-slate-900 mb-2">Images</h3>
+                <div className="grid grid-cols-2 gap-2">
+                  {issue.images.map((imageUrl, index) => (
+                    <div key={index} className="aspect-video bg-slate-100 rounded-lg overflow-hidden">
+                      <img 
+                        src={imageUrl} 
+                        alt={`Issue image ${index + 1}`}
+                        className="w-full h-full object-cover"
+                      />
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Citizen Rating */}
+            {issue.status === 'resolved' && (
+              <div>
+                <h3 className="font-semibold text-slate-900 mb-2">Rate Resolution</h3>
+                <div className="flex gap-1">
+                  {[1, 2, 3, 4, 5].map((star) => (
+                    <button
+                      key={star}
+                      onClick={() => handleRating(star)}
+                      className={`w-6 h-6 ${star <= rating ? 'text-yellow-400' : 'text-slate-300'} hover:text-yellow-400 transition-colors`}
+                    >
+                      <Star className="w-full h-full fill-current" />
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Status Update */}
+            <div>
+              <h3 className="font-semibold text-slate-900 mb-2">Update Status</h3>
+              <div className="flex gap-2">
+                <Select value={newStatus} onValueChange={setNewStatus}>
+                  <SelectTrigger className="flex-1">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="reported">Reported</SelectItem>
+                    <SelectItem value="assigned">Assigned</SelectItem>
+                    <SelectItem value="in_progress">In Progress</SelectItem>
+                    <SelectItem value="resolved">Resolved</SelectItem>
+                    <SelectItem value="escalated">Escalated</SelectItem>
+                  </SelectContent>
+                </Select>
+                <Button 
+                  onClick={handleStatusUpdate}
+                  disabled={isLoading || newStatus === issue.status}
+                >
+                  Update
+                </Button>
+              </div>
+            </div>
+
+            {/* Add Update */}
+            <div>
+              <h3 className="font-semibold text-slate-900 mb-2">Add Update</h3>
+              <div className="space-y-2">
+                <Textarea
+                  placeholder="Share an update about this issue..."
+                  value={newUpdate}
+                  onChange={(e) => setNewUpdate(e.target.value)}
+                />
+                <Button 
+                  onClick={handleAddUpdate}
+                  disabled={isLoading || !newUpdate.trim()}
+                  className="w-full"
+                >
+                  <MessageSquare className="w-4 h-4 mr-2" />
+                  Add Update
+                </Button>
+              </div>
+            </div>
+
+            {/* Updates Timeline */}
+            {updates.length > 0 && (
+              <div>
+                <h3 className="font-semibold text-slate-900 mb-3">Updates</h3>
+                <div className="space-y-3">
+                  {updates.map((update) => (
+                    <div key={update.id} className="border border-slate-200 rounded-lg p-3">
+                      <div className="flex justify-between items-start mb-1">
+                        <Badge variant="outline" className={`
+                          ${update.update_type === 'status_change' ? 'bg-blue-50 text-blue-700' :
+                            update.update_type === 'comment' ? 'bg-green-50 text-green-700' :
+                            'bg-gray-50 text-gray-700'}
+                        `}>
+                          {update.update_type.replace(/_/g, ' ')}
+                        </Badge>
+                        <span className="text-xs text-slate-500">
+                          {format(new Date(update.created_date), "MMM d 'at' h:mm a")}
+                        </span>
+                      </div>
+                      <p className="text-sm text-slate-700">{update.message}</p>
+                      <div className="text-xs text-slate-500 mt-1">
+                        by {update.author_type}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        </CardContent>
+      </Card>
+    </div>
+  );
+}

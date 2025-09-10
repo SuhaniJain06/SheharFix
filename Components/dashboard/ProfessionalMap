@@ -1,0 +1,363 @@
+import React, { useState } from 'react';
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Switch } from "@/components/ui/switch";
+import { MapPin, Filter, Layers, Users, Clock, AlertTriangle } from "lucide-react";
+import { format, differenceInHours } from "date-fns";
+
+const statusColors = {
+  reported: "bg-blue-500",
+  acknowledged: "bg-cyan-500", 
+  assigned: "bg-yellow-500",
+  in_progress: "bg-orange-500",
+  resolved: "bg-green-500",
+  pending_validation: "bg-purple-500",
+  closed: "bg-gray-500",
+  escalated: "bg-red-500",
+  appealed: "bg-pink-500"
+};
+
+const priorityColors = {
+  low: "border-blue-400",
+  medium: "border-yellow-400", 
+  high: "border-orange-400",
+  critical: "border-red-400",
+  emergency: "border-red-600 shadow-red-200"
+};
+
+export default function ProfessionalMap({ issues, onIssueSelect, filters, onFiltersChange }) {
+  const [heatmapMode, setHeatmapMode] = useState(false);
+  const [hoveredIssue, setHoveredIssue] = useState(null);
+  const [clusterDistance, setClusterDistance] = useState(50);
+
+  const mapWidth = 900;
+  const mapHeight = 500;
+
+  // Enhanced filtering logic
+  const filteredIssues = issues.filter(issue => {
+    if (filters.status && filters.status !== 'all' && issue.status !== filters.status) return false;
+    if (filters.category && filters.category !== 'all' && issue.category !== filters.category) return false;
+    if (filters.priority && filters.priority !== 'all' && issue.priority !== filters.priority) return false;
+    if (filters.department && filters.department !== 'all' && issue.department !== filters.department) return false;
+    if (filters.sla_status && filters.sla_status !== 'all' && getSLAStatus(issue) !== filters.sla_status) return false;
+    return true;
+  });
+
+  // Cluster nearby issues
+  const clusterIssues = (issues) => {
+    const clusters = [];
+    const processed = new Set();
+
+    issues.forEach((issue, index) => {
+      if (processed.has(index)) return;
+
+      const cluster = {
+        centerIssue: issue,
+        issues: [issue],
+        position: getIssuePosition(issue, index),
+        count: 1
+      };
+
+      issues.forEach((otherIssue, otherIndex) => {
+        if (index === otherIndex || processed.has(otherIndex)) return;
+        
+        const distance = calculateDistance(
+          getIssuePosition(issue, index),
+          getIssuePosition(otherIssue, otherIndex)
+        );
+
+        if (distance < clusterDistance) {
+          cluster.issues.push(otherIssue);
+          cluster.count += 1;
+          processed.add(otherIndex);
+        }
+      });
+
+      processed.add(index);
+      clusters.push(cluster);
+    });
+
+    return clusters;
+  };
+
+  const calculateDistance = (pos1, pos2) => {
+    return Math.sqrt(Math.pow(pos1.x - pos2.x, 2) + Math.pow(pos1.y - pos2.y, 2));
+  };
+
+  const getIssuePosition = (issue, index) => {
+    // Use location data if available, otherwise generate deterministic position
+    if (issue.location?.latitude && issue.location?.longitude) {
+      // Convert lat/lng to map coordinates (simplified)
+      const x = ((issue.location.longitude + 180) / 360) * mapWidth;
+      const y = ((90 - issue.location.latitude) / 180) * mapHeight;
+      return { x: Math.max(30, Math.min(mapWidth - 30, x)), y: Math.max(30, Math.min(mapHeight - 30, y)) };
+    }
+    // Fallback to hash-based positioning
+    const x = (issue.id?.charCodeAt(0) || index * 17) % (mapWidth - 100) + 50;
+    const y = (issue.id?.charCodeAt(1) || index * 23) % (mapHeight - 100) + 50;
+    return { x, y };
+  };
+
+  const getSLAStatus = (issue) => {
+    if (!issue.sla_due_date) return 'on_time';
+    const hoursUntilDue = differenceInHours(new Date(issue.sla_due_date), new Date());
+    if (hoursUntilDue < 0) return 'overdue';
+    if (hoursUntilDue < 24) return 'approaching';
+    return 'on_time';
+  };
+
+  const clusters = clusterIssues(filteredIssues);
+
+  return (
+    <Card className="shadow-lg border-0 bg-card">
+      <CardHeader className="border-b border-border">
+        <div className="flex justify-between items-center">
+          <CardTitle className="text-xl font-bold text-card-foreground">Interactive Issue Map</CardTitle>
+          <div className="flex items-center gap-4">
+            {/* Heatmap Toggle */}
+            <div className="flex items-center gap-2">
+              <Layers className="w-4 h-4" />
+              <span className="text-sm">Heatmap</span>
+              <Switch checked={heatmapMode} onCheckedChange={setHeatmapMode} />
+            </div>
+            
+            {/* Quick Filters */}
+            <Select value={filters.status || 'all'} onValueChange={(value) => onFiltersChange({ ...filters, status: value })}>
+              <SelectTrigger className="w-32">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Status</SelectItem>
+                <SelectItem value="reported">Reported</SelectItem>
+                <SelectItem value="in_progress">In Progress</SelectItem>
+                <SelectItem value="resolved">Resolved</SelectItem>
+                <SelectItem value="escalated">Escalated</SelectItem>
+              </SelectContent>
+            </Select>
+
+            <Select value={filters.priority || 'all'} onValueChange={(value) => onFiltersChange({ ...filters, priority: value })}>
+              <SelectTrigger className="w-32">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Priority</SelectItem>
+                <SelectItem value="emergency">Emergency</SelectItem>
+                <SelectItem value="critical">Critical</SelectItem>
+                <SelectItem value="high">High</SelectItem>
+                <SelectItem value="medium">Medium</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+        </div>
+      </CardHeader>
+      
+      <CardContent className="p-0">
+        <div 
+          className="relative w-full bg-gradient-to-br from-slate-100 to-blue-100 dark:from-gray-800 dark:to-blue-900 overflow-hidden"
+          style={{ height: mapHeight }}
+        >
+          {/* Enhanced background grid */}
+          <svg className="absolute inset-0 w-full h-full opacity-30">
+            <defs>
+              <pattern id="grid" width="50" height="50" patternUnits="userSpaceOnUse">
+                <path d="M 50 0 L 0 0 0 50" fill="none" stroke="currentColor" strokeWidth="1" className="text-muted-foreground"/>
+              </pattern>
+              {heatmapMode && (
+                <radialGradient id="heatGradient" cx="50%" cy="50%" r="50%">
+                  <stop offset="0%" stopColor="#ef4444" stopOpacity="0.6"/>
+                  <stop offset="50%" stopColor="#f97316" stopOpacity="0.4"/>
+                  <stop offset="100%" stopColor="#3b82f6" stopOpacity="0.2"/>
+                </radialGradient>
+              )}
+            </defs>
+            <rect width="100%" height="100%" fill="url(#grid)" />
+          </svg>
+
+          {/* Heatmap overlay */}
+          {heatmapMode && (
+            <svg className="absolute inset-0 w-full h-full">
+              {clusters.map((cluster, index) => (
+                <circle
+                  key={index}
+                  cx={cluster.position.x}
+                  cy={cluster.position.y}
+                  r={Math.max(20, cluster.count * 8)}
+                  fill="url(#heatGradient)"
+                  className="opacity-60"
+                />
+              ))}
+            </svg>
+          )}
+          
+          {/* Issue markers - enhanced clustering */}
+          {clusters.map((cluster, clusterIndex) => {
+            const isHovered = hoveredIssue === cluster.centerIssue.id;
+            const slaStatus = getSLAStatus(cluster.centerIssue);
+            
+            return (
+              <div
+                key={clusterIndex}
+                className="absolute transform -translate-x-1/2 -translate-y-1/2 cursor-pointer"
+                style={{ left: cluster.position.x, top: cluster.position.y }}
+                onMouseEnter={() => setHoveredIssue(cluster.centerIssue.id)}
+                onMouseLeave={() => setHoveredIssue(null)}
+                onClick={() => onIssueSelect(cluster.centerIssue)}
+              >
+                {/* Main marker with enhanced styling */}
+                <div className={`
+                  relative w-8 h-8 rounded-full border-4 border-white shadow-lg flex items-center justify-center
+                  transition-all duration-200 hover:scale-125 hover:shadow-xl
+                  ${statusColors[cluster.centerIssue.status]}
+                  ${priorityColors[cluster.centerIssue.priority]}
+                  ${isHovered ? 'scale-125 shadow-xl z-10' : ''}
+                  ${slaStatus === 'overdue' ? 'animate-pulse' : ''}
+                `}>
+                  <MapPin className="w-4 h-4 text-white" />
+                  
+                  {/* Priority indicator */}
+                  {cluster.centerIssue.priority === 'emergency' && (
+                    <div className="absolute -top-1 -right-1 w-3 h-3 bg-red-500 rounded-full animate-ping" />
+                  )}
+                </div>
+                
+                {/* Cluster count badge */}
+                {cluster.count > 1 && (
+                  <div className="absolute -top-2 -right-2 w-6 h-6 bg-red-500 text-white rounded-full text-xs flex items-center justify-center font-bold shadow-lg">
+                    {cluster.count}
+                  </div>
+                )}
+
+                {/* Duplicate count badge */}
+                {cluster.centerIssue.duplicate_count > 1 && (
+                  <div className="absolute -bottom-1 -right-1 bg-orange-500 text-white rounded-full text-xs px-1 font-bold">
+                    +{cluster.centerIssue.duplicate_count}
+                  </div>
+                )}
+                
+                {/* Enhanced hover tooltip */}
+                {isHovered && (
+                  <div className="absolute bottom-10 left-1/2 transform -translate-x-1/2 z-50">
+                    <div className="bg-card border border-border rounded-lg shadow-2xl p-4 min-w-80 max-w-sm">
+                      <div className="flex items-start justify-between mb-2">
+                        <h3 className="font-semibold text-card-foreground text-sm">{cluster.centerIssue.title}</h3>
+                        {cluster.centerIssue.priority_score && (
+                          <Badge variant="outline" className="text-xs">
+                            Score: {cluster.centerIssue.priority_score}
+                          </Badge>
+                        )}
+                      </div>
+                      
+                      <p className="text-sm text-muted-foreground mb-3 line-clamp-2">
+                        {cluster.centerIssue.description}
+                      </p>
+                      
+                      <div className="flex flex-wrap gap-1 mb-2">
+                        <Badge className={`text-xs ${statusColors[cluster.centerIssue.status]} text-white`}>
+                          {cluster.centerIssue.status.replace(/_/g, ' ')}
+                        </Badge>
+                        <Badge variant="outline" className="text-xs">
+                          {cluster.centerIssue.category.replace(/_/g, ' ')}
+                        </Badge>
+                        <Badge variant={cluster.centerIssue.priority === 'emergency' ? 'destructive' : 'secondary'} className="text-xs">
+                          {cluster.centerIssue.priority}
+                        </Badge>
+                      </div>
+
+                      <div className="flex items-center justify-between text-xs text-muted-foreground">
+                        <div className="flex items-center gap-1">
+                          <Clock className="w-3 h-3" />
+                          <span>{format(new Date(cluster.centerIssue.created_date), "MMM d, h:mm a")}</span>
+                        </div>
+                        {cluster.centerIssue.duplicate_count > 1 && (
+                          <div className="flex items-center gap-1">
+                            <Users className="w-3 h-3" />
+                            <span>{cluster.centerIssue.duplicate_count} reports</span>
+                          </div>
+                        )}
+                      </div>
+
+                      {cluster.centerIssue.location?.address && (
+                        <div className="text-xs text-muted-foreground mt-1 truncate">
+                          📍 {cluster.centerIssue.location.address}
+                        </div>
+                      )}
+
+                      {/* SLA Status indicator */}
+                      <div className={`text-xs mt-2 px-2 py-1 rounded ${
+                        slaStatus === 'overdue' ? 'bg-red-100 text-red-800 dark:bg-red-950 dark:text-red-300' :
+                        slaStatus === 'approaching' ? 'bg-yellow-100 text-yellow-800 dark:bg-yellow-950 dark:text-yellow-300' :
+                        'bg-green-100 text-green-800 dark:bg-green-950 dark:text-green-300'
+                      }`}>
+                        SLA: {slaStatus === 'overdue' ? 'Overdue' : 
+                              slaStatus === 'approaching' ? 'Due Soon' : 'On Time'}
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+          
+          {/* Enhanced legend */}
+          <div className="absolute bottom-4 left-4 bg-card/95 backdrop-blur-sm rounded-lg p-4 shadow-lg border border-border max-w-xs">
+            <h4 className="text-sm font-semibold text-card-foreground mb-3">Map Legend</h4>
+            
+            {/* Status Legend */}
+            <div className="mb-3">
+              <h5 className="text-xs font-medium text-muted-foreground mb-1">Status</h5>
+              <div className="grid grid-cols-2 gap-1 text-xs">
+                {Object.entries(statusColors).slice(0, 4).map(([status, color]) => (
+                  <div key={status} className="flex items-center gap-1">
+                    <div className={`w-3 h-3 rounded-full ${color}`} />
+                    <span className="text-muted-foreground capitalize">{status.replace(/_/g, ' ')}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Priority Legend */}
+            <div className="mb-2">
+              <h5 className="text-xs font-medium text-muted-foreground mb-1">Priority</h5>
+              <div className="flex gap-2 text-xs">
+                <div className="flex items-center gap-1">
+                  <div className="w-3 h-3 rounded-full bg-red-500" />
+                  <span className="text-muted-foreground">Emergency</span>
+                </div>
+                <div className="flex items-center gap-1">
+                  <div className="w-3 h-3 rounded-full bg-orange-500" />
+                  <span className="text-muted-foreground">High</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Additional indicators */}
+            <div className="text-xs text-muted-foreground">
+              <div className="flex items-center gap-2 mb-1">
+                <div className="w-4 h-4 bg-red-500 text-white rounded-full flex items-center justify-center text-xs font-bold">5</div>
+                <span>Cluster count</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <div className="w-4 h-4 bg-orange-500 text-white rounded-full flex items-center justify-center text-xs">+</div>
+                <span>Duplicate reports</span>
+              </div>
+            </div>
+          </div>
+
+          {/* Issue count and filters summary */}
+          <div className="absolute top-4 right-4 bg-card/95 backdrop-blur-sm rounded-lg p-3 shadow-lg border border-border">
+            <div className="text-sm font-medium text-card-foreground">
+              {filteredIssues.length} of {issues.length} issues shown
+            </div>
+            {Object.values(filters).some(f => f && f !== 'all') && (
+              <div className="text-xs text-muted-foreground mt-1">
+                Filters active
+              </div>
+            )}
+          </div>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
