@@ -1,0 +1,16 @@
+[
+  {
+    "id": "u-admin-1",
+    "name": "Admin User",
+    "email": "admin@yourcity.com",
+    "password": "AdminPass123",
+    "role": "admin"
+  },
+  {
+    "id": "u-user-1",
+    "name": "Test Citizen",
+    "email": "user@yourcity.com",
+    "password": "UserPass123",
+    "role": "user"
+  }
+]
